@@ -3,13 +3,18 @@
     <groupId>software.amazon.msk.debezium.mysql</groupId>
     <artifactId>msk-debezium-mysql-metrics-connector</artifactId>
     <version>0.0.4-SNAPSHOT</version>
+    <packaging>jar</packaging>
 
     <properties>
         <connect.api.version>3.7.0</connect.api.version>
         <debezium.connector.mysql.version>3.0.7.Final</debezium.connector.mysql.version>
+        <cloudwatch.sdk.version>2.15.81</cloudwatch.sdk.version>
+        <commons.text.version>1.10.0</commons.text.version>
         <maven.compiler.plugin>3.10.1</maven.compiler.plugin>
         <junit.version>5.8.2</junit.version>
         <maven.surefire.plugin.version>2.22.2</maven.surefire.plugin.version>
+        <plugin.output.dir>${project.basedir}/../../../plugin/debezium/3.0.7</plugin.output.dir>
+        <kafka.config.provider.aws.version>0.1.2</kafka.config.provider.aws.version>
     </properties>
     <dependencies>
         <dependency>
@@ -22,16 +27,19 @@
             <groupId>io.debezium</groupId>
             <artifactId>debezium-connector-mysql</artifactId>
             <version>${debezium.connector.mysql.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>cloudwatch</artifactId>
-            <version>2.15.81</version>
+            <version>${cloudwatch.sdk.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-            <version>1.10.0</version>
+            <version>${commons.text.version}</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
     <build>
@@ -50,6 +58,95 @@
                 <configuration>
                     <release>17</release>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.googlecode.maven-download-plugin</groupId>
+                <artifactId>download-maven-plugin</artifactId>
+                <version>1.9.0</version>
+                <executions>
+                    <execution>
+                        <id>download-debezium-plugin</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>https://repo1.maven.org/maven2/io/debezium/debezium-connector-mysql/${debezium.connector.mysql.version}/debezium-connector-mysql-${debezium.connector.mysql.version}-plugin.tar.gz</url>
+                            <outputDirectory>${project.build.directory}/debezium-download</outputDirectory>
+                            <outputFileName>debezium-plugin.tar.gz</outputFileName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>download-cloudwatch-jar</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>https://repo1.maven.org/maven2/software/amazon/awssdk/cloudwatch/${cloudwatch.sdk.version}/cloudwatch-${cloudwatch.sdk.version}.jar</url>
+                            <outputDirectory>${project.build.directory}/extra-jars</outputDirectory>
+                            <outputFileName>cloudwatch-${cloudwatch.sdk.version}.jar</outputFileName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>download-commons-text-jar</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>https://repo1.maven.org/maven2/org/apache/commons/commons-text/${commons.text.version}/commons-text-${commons.text.version}.jar</url>
+                            <outputDirectory>${project.build.directory}/extra-jars</outputDirectory>
+                            <outputFileName>commons-text-${commons.text.version}.jar</outputFileName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>download-kafka-config-provider-aws</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>https://hub-downloads.confluent.io/api/plugins/jcustenborder/kafka-config-provider-aws/versions/${kafka.config.provider.aws.version}/jcustenborder-kafka-config-provider-aws-${kafka.config.provider.aws.version}.zip</url>
+                            <outputDirectory>${project.build.directory}/config-provider-download</outputDirectory>
+                            <outputFileName>kafka-config-provider-aws.zip</outputFileName>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>extract-and-package</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}/plugin-assembly"/>
+                                <gunzip src="${project.build.directory}/debezium-download/debezium-plugin.tar.gz" dest="${project.build.directory}/debezium-download/debezium-plugin.tar"/>
+                                <untar src="${project.build.directory}/debezium-download/debezium-plugin.tar" dest="${project.build.directory}/plugin-assembly"/>
+                                <unzip src="${project.build.directory}/config-provider-download/kafka-config-provider-aws.zip" dest="${project.build.directory}/config-provider-extracted"/>
+                                <copy todir="${project.build.directory}/plugin-assembly/debezium-connector-mysql">
+                                    <fileset dir="${project.build.directory}/extra-jars"/>
+                                </copy>
+                                <copy todir="${project.build.directory}/plugin-assembly/debezium-connector-mysql">
+                                    <fileset dir="${project.build.directory}/config-provider-extracted/jcustenborder-kafka-config-provider-aws-${kafka.config.provider.aws.version}/lib">
+                                        <include name="*.jar"/>
+                                    </fileset>
+                                </copy>
+                                <copy file="${project.build.directory}/${project.artifactId}-${project.version}.jar" todir="${project.build.directory}/plugin-assembly/debezium-connector-mysql"/>
+                                <mkdir dir="${plugin.output.dir}"/>
+                                <zip destfile="${plugin.output.dir}/custom-debezium-mysql-connector-plugin.zip" basedir="${project.build.directory}/plugin-assembly"/>
+                                <echo message="Plugin created: ${plugin.output.dir}/custom-debezium-mysql-connector-plugin.zip"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
