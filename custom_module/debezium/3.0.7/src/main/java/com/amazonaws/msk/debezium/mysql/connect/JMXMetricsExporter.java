@@ -23,6 +23,7 @@ import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import javax.management.ReflectionException;
+import javax.management.openmbean.TabularData;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
@@ -479,6 +480,8 @@ public class JMXMetricsExporter extends TimerTask {
 					@SuppressWarnings("unchecked")
 					Map<String, ?> mapValue = (Map<String, ?>) value;
 					return (double) mapValue.size();
+				case "javax.management.openmbean.TabularData":
+					return (double) ((TabularData) value).size();
 				default:
 					return Double.parseDouble(value.toString());
 			}
