@@ -22,6 +22,7 @@ import static com.amazonaws.msk.debezium.mysql.connect.Configuration.CW_DEBEZIUM
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.CW_DEBEZIUM_STREAM_METRICS_INCLUDE;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.CW_NAMESPACE_KEY;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.CW_REGION_KEY;
+import static com.amazonaws.msk.debezium.mysql.connect.Configuration.CW_SYSTEM_METRICS_ENABLED;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.TOPIC_PREFIX_KEY;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.DEFAULT_CW_NAMESPACE;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.DEFAULT_JMX_PORT;
@@ -53,6 +54,8 @@ public class DebeziumMySqlMetricsConnector extends MySqlConnector{
 
 	private static String includeSchemaHistoryMetricsStr;
 	private static String excludeSchemaHistoryMetricsStr;
+
+	private static boolean systemMetricsEnabled;
 
 	private static Scheduler getScheduler() {
 		if(scheduler == null) {
@@ -98,6 +101,10 @@ public class DebeziumMySqlMetricsConnector extends MySqlConnector{
 		return excludeSchemaHistoryMetricsStr;
 	}
 
+	public static boolean isSystemMetricsEnabled() {
+		return systemMetricsEnabled;
+	}
+
 @Override
 public void start(Map<String, String> props) {
 
@@ -130,6 +137,9 @@ private void initializeProperties(Map<String, String> props) {
 			includeSnapshotMetricsStr, excludeSnapshotMetricsStr);
 	LOGGER.info("Schema History configuration properties - Include Metrics - {} :: Exclude Metrics - {}",
 			includeSchemaHistoryMetricsStr, excludeSchemaHistoryMetricsStr);
+
+	systemMetricsEnabled = Boolean.parseBoolean(props.getOrDefault(CW_SYSTEM_METRICS_ENABLED, "true"));
+	LOGGER.info("System metrics enabled: {}", systemMetricsEnabled);
 }
 
 private void setupJMXServer() {

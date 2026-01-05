@@ -23,6 +23,7 @@ import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import javax.management.ReflectionException;
+import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.TabularData;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
@@ -39,6 +40,8 @@ import static com.amazonaws.msk.debezium.mysql.connect.Configuration.JMX_URL_TEM
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.SCHEMA_HISTORY_MBEAN_OBJECT_NAME_TEMPLATE;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.SNAPSHOT_MBEAN_OBJECT_NAME_TEMPLATE;
 import static com.amazonaws.msk.debezium.mysql.connect.Configuration.STREAMING_MBEAN_OBJECT_NAME_TEMPLATE;
+import static com.amazonaws.msk.debezium.mysql.connect.Configuration.OPERATING_SYSTEM_MBEAN_OBJECT_NAME;
+import static com.amazonaws.msk.debezium.mysql.connect.Configuration.MEMORY_MBEAN_OBJECT_NAME;
 
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
@@ -381,6 +384,19 @@ public class JMXMetricsExporter extends TimerTask {
 						LOGGER.info("No CloudWatch metrics to push for schema history type");
 					}
 				}
+
+				if (DebeziumMySqlMetricsConnector.isSystemMetricsEnabled()) {
+					LOGGER.info("Extracting system metrics (CPU/Memory)");
+					List<MetricDatum> systemMetrics = extractSystemMetrics(mbsc, dimension, instant);
+					if (!systemMetrics.isEmpty()) {
+						PutMetricDataRequest request = PutMetricDataRequest.builder()
+								.namespace(DebeziumMySqlMetricsConnector.getCWNameSpace())
+								.metricData(systemMetrics)
+								.build();
+						cw.putMetricData(request);
+						LOGGER.info("Successfully published system metrics to CloudWatch");
+					}
+				}
 			} catch (IOException ioEx) {
 				LOGGER.error("I/O error during JMX connection or metric extraction", ioEx);
 				// Optionally, notify user or system about the failure
@@ -453,6 +469,147 @@ public class JMXMetricsExporter extends TimerTask {
 	return attributesMetadata;
 	}
 
+	private List<MetricDatum> extractSystemMetrics(MBeanServerConnection mbsc, Dimension topicDimension, Instant instant) {
+		List<MetricDatum> metrics = new ArrayList<>();
+		Dimension dimensionType = Dimension.builder()
+				.name("type")
+				.value("system")
+				.build();
+
+		try {
+			ObjectName osMBean = new ObjectName(OPERATING_SYSTEM_MBEAN_OBJECT_NAME);
+
+			try {
+				Object processCpuLoad = mbsc.getAttribute(osMBean, "ProcessCpuLoad");
+				if (processCpuLoad instanceof Number) {
+					double cpuPercent = ((Number) processCpuLoad).doubleValue() * 100.0;
+					metrics.add(MetricDatum.builder()
+							.metricName("ProcessCpuUsagePercent")
+							.unit(StandardUnit.PERCENT)
+							.value(cpuPercent)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+					LOGGER.info("Prepared metric: ProcessCpuUsagePercent with value {}", cpuPercent);
+				}
+			} catch (Exception e) {
+				LOGGER.warn("ProcessCpuLoad not available: {}", e.getMessage());
+			}
+
+			try {
+				Object systemCpuLoad = mbsc.getAttribute(osMBean, "SystemCpuLoad");
+				if (systemCpuLoad instanceof Number) {
+					double cpuPercent = ((Number) systemCpuLoad).doubleValue() * 100.0;
+					metrics.add(MetricDatum.builder()
+							.metricName("SystemCpuUsagePercent")
+							.unit(StandardUnit.PERCENT)
+							.value(cpuPercent)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+					LOGGER.info("Prepared metric: SystemCpuUsagePercent with value {}", cpuPercent);
+				}
+			} catch (Exception e) {
+				LOGGER.warn("SystemCpuLoad not available: {}", e.getMessage());
+			}
+
+			try {
+				Object availableProcessors = mbsc.getAttribute(osMBean, "AvailableProcessors");
+				if (availableProcessors instanceof Number) {
+					metrics.add(MetricDatum.builder()
+							.metricName("AvailableProcessors")
+							.unit(StandardUnit.COUNT)
+							.value(((Number) availableProcessors).doubleValue())
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+				}
+			} catch (Exception e) {
+				LOGGER.warn("AvailableProcessors not available: {}", e.getMessage());
+			}
+
+			ObjectName memoryMBean = new ObjectName(MEMORY_MBEAN_OBJECT_NAME);
+
+			try {
+				CompositeData heapMemory = (CompositeData) mbsc.getAttribute(memoryMBean, "HeapMemoryUsage");
+				if (heapMemory != null) {
+					long used = (Long) heapMemory.get("used");
+					long max = (Long) heapMemory.get("max");
+					long committed = (Long) heapMemory.get("committed");
+
+					metrics.add(MetricDatum.builder()
+							.metricName("HeapMemoryUsed")
+							.unit(StandardUnit.BYTES)
+							.value((double) used)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+
+					metrics.add(MetricDatum.builder()
+							.metricName("HeapMemoryMax")
+							.unit(StandardUnit.BYTES)
+							.value((double) max)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+
+					metrics.add(MetricDatum.builder()
+							.metricName("HeapMemoryCommitted")
+							.unit(StandardUnit.BYTES)
+							.value((double) committed)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+
+					if (max > 0) {
+						double usagePercent = ((double) used / max) * 100.0;
+						metrics.add(MetricDatum.builder()
+								.metricName("HeapMemoryUsagePercent")
+								.unit(StandardUnit.PERCENT)
+								.value(usagePercent)
+								.timestamp(instant)
+								.dimensions(topicDimension, dimensionType)
+								.build());
+						LOGGER.info("Prepared metric: HeapMemoryUsagePercent with value {}", usagePercent);
+					}
+				}
+			} catch (Exception e) {
+				LOGGER.warn("HeapMemoryUsage not available: {}", e.getMessage());
+			}
+
+			try {
+				CompositeData nonHeapMemory = (CompositeData) mbsc.getAttribute(memoryMBean, "NonHeapMemoryUsage");
+				if (nonHeapMemory != null) {
+					long used = (Long) nonHeapMemory.get("used");
+					long committed = (Long) nonHeapMemory.get("committed");
+
+					metrics.add(MetricDatum.builder()
+							.metricName("NonHeapMemoryUsed")
+							.unit(StandardUnit.BYTES)
+							.value((double) used)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+
+					metrics.add(MetricDatum.builder()
+							.metricName("NonHeapMemoryCommitted")
+							.unit(StandardUnit.BYTES)
+							.value((double) committed)
+							.timestamp(instant)
+							.dimensions(topicDimension, dimensionType)
+							.build());
+				}
+			} catch (Exception e) {
+				LOGGER.warn("NonHeapMemoryUsage not available: {}", e.getMessage());
+			}
+
+		} catch (MalformedObjectNameException e) {
+			LOGGER.error("Invalid MBean object name", e);
+		}
+
+		LOGGER.info("Extracted {} system metrics", metrics.size());
+		return metrics;
+	}
 
 	private Double convertToDouble(Object value, String type) {
 		if (value == null) return 0.0;

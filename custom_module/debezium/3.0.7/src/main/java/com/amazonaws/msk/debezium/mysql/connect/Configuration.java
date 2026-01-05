@@ -26,6 +26,8 @@ public interface Configuration {
 
 	String CW_DEBEZIUM_SCHEMA_HISTORY_METRICS_EXCLUDE = "cloudwatch.debezium.schema.history.metrics.exclude";
 
+	String CW_SYSTEM_METRICS_ENABLED = "cloudwatch.system.metrics.enabled";
+
 	// Default metrics sets
     public static final Set<String> CW_DEBEZIUM_DEFAULT_STREAMING_METRICS =
 	new HashSet<>(Arrays.asList(
@@ -60,4 +62,8 @@ public interface Configuration {
 	String SNAPSHOT_MBEAN_OBJECT_NAME_TEMPLATE = "debezium.mysql:type=connector-metrics,context=snapshot,server=%s";
 
 	String SCHEMA_HISTORY_MBEAN_OBJECT_NAME_TEMPLATE = "debezium.mysql:type=connector-metrics,context=schema-history,server=%s";
+
+	String OPERATING_SYSTEM_MBEAN_OBJECT_NAME = "java.lang:type=OperatingSystem";
+
+	String MEMORY_MBEAN_OBJECT_NAME = "java.lang:type=Memory";
 }
