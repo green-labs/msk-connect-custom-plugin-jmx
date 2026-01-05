@@ -457,11 +457,16 @@ public class JMXMetricsExporter extends TimerTask {
 		if (value == null) return 0.0;
 		try {
 			switch (type) {
+				case "long":
+				case "int":
+				case "double":
+				case "float":
 				case "java.lang.Long":
 				case "java.lang.Integer":
 				case "java.lang.Double":
 				case "java.lang.Float":
 					return ((Number) value).doubleValue();
+				case "boolean":
 				case "java.lang.Boolean":
 					return ((Boolean) value) ? 1.0 : 0.0;
 				case "[Ljava.lang.String;":
@@ -469,6 +474,10 @@ public class JMXMetricsExporter extends TimerTask {
 					return (double) Arrays.stream(arrayValue)
 							.filter(s -> s != null && !s.trim().isEmpty())
 							.count();
+				case "java.lang.String":
+					String strValue = (String) value;
+					if (strValue == null || strValue.trim().isEmpty()) return 0.0;
+					return Double.parseDouble(strValue);
 				case "java.util.Map":
 					@SuppressWarnings("unchecked")
 					Map<String, ?> mapValue = (Map<String, ?>) value;
